@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>उस्ताद का AI - Auto Retry</title>
+<style>
+body{font-family:system-ui;background:#0f0f0f;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:10px}
+.box{background:#1e1e1e;padding:20px;border-radius:20px;width:92%;max-width:420px;text-align:center;}
+button{padding:16px 30px;border-radius:50px;border:none;font-size:19px;background:linear-gradient(45deg,#ff0080,#7928ca);color:#fff;font-weight:bold;cursor:pointer;margin-top:15px;width:100%}
+#log{background:#000;padding:15px;border-radius:12px;min-height:120px;text-align:left;margin-top:15px;font-size:14px;max-height:350px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+</style>
+</head>
+<body>
+<div class="box">
+<h2>🎙️ बोलो उस्ताद</h2>
+<button id="btn">🔴 बटन दबाओ और बोलो</button>
+<div id="log">तैयार हूँ उस्ताद...</div>
+</div>
+<script>
+const API_KEY = "AQ.Ab8RN6JYlk3yQDjabXQYMzQpaZ7Xji4zrTZt7SQC4d39KaDbBA";
+const btn = document.getElementById('btn');
+const log = document.getElementById('log');
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const rec = new SR(); rec.lang = 'hi-IN';
+
+function bolna(t){
+  speechSynthesis.cancel();
+  let m = new SpeechSynthesisUtterance(t); m.lang='hi-IN'; m.rate=0.95;
+  speechSynthesis.speak(m);
+  log.innerHTML += `\n\n🤖 मैं: ${t}`;
+  log.scrollTop = log.scrollHeight;
+}
+
+async function callModel(modelName, sawal){
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-goog-api-key": API_KEY},
+    body: JSON.stringify({contents: [{ parts: [{ text: `हिंदी में छोटा जवाब दो: ${sawal}` }]}]})
+  });
+  return await res.json();
+}
+
+async function asliDimaag(sawal){
+  log.innerHTML += `\n\n🧠 सोच रहा हूँ...`;
+  // ये सारे मॉडल एक के बाद एक ट्राई होंगे
+  const models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash-lite"];
+
+  for(let model of models){
+    for(let retry=1; retry<=3; retry++){
+      try{
+        log.innerHTML += `\n⏳ ${model} ट्राई कर रहा हूँ (बार ${retry})...`;
+        let data = await callModel(model, sawal);
+        
+        if(!data.error){
+          let jawab = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if(jawab){ bolna(jawab); return; }
+        }
+
+        // 503 है तो 2 सेकंड रुक के फिर ट्राई करो
+        if(data.error && data.error.code == 503){
+          log.innerHTML += `\n⚠️ ${model} पर भीड़ है, ${retry*2} सेकंड रुक रहा हूँ...`;
+          await new Promise(r=>setTimeout(r, retry*2000));
+          continue;
+        }
+        // 404 है तो अगला मॉडल ट्राई करो
+        if(data.error && data.error.code == 404){
+          log.innerHTML += `\n❌ ${model} नहीं मिला, अगला ट्राई...`;
+          break;
+        }
+        // दूसरा error
+        log.innerHTML += `\n❌ ${model} Error: ${data.error.message}`;
+        break;
+
+      }catch(e){
+        log.innerHTML += `\n❌ नेटवर्क: ${e.message}`;
+      }
+    }
+  }
+  bolna("उस्ताद अभी सभी मॉडल बिजी हैं, 2 मिनट बाद फिर से बोलो");
+}
+
+rec.onresult = (e) => {
+  let bola = e.results[0][0].transcript;
+  log.innerHTML = `👨‍💼 आप: ${bola}`;
+  asliDimaag(bola);
+};
+rec.onerror = (e) => { log.innerHTML = `माइक दो: ${e.error}`; };
+btn.onclick = () => {
+  log.innerHTML = "🎧 सुन रहा हूँ...";
+  try{ rec.start(); btn.innerText="🎧 सुन रहा हूँ..."; setTimeout(()=>btn.innerText="🔴 बटन दबाओ और बोलो",4000); }catch(err){}
+};
+</script>
+</body>
+</html>
